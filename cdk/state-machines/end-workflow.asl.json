@@ -1,0 +1,33 @@
+{
+    "Comment": "End Workflow",
+    "StartAt": "Wait5Seconds",
+    "States": {
+      "Wait5Seconds": {
+        "Type": "Wait",
+        "Seconds": 5,
+        "Next": "EndEvent"
+      },
+      "EndEvent": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::events:putEvents",
+        "Parameters": {
+          "Entries": [
+            {
+              "Detail": {
+                "pk.$": "$.pk",
+                "sk.$": "$.sk",
+                "status": "ended",
+                "title.$": "States.Format('Ended : {}', $.name)",
+                "description": "🗑️ Event ended"
+              },
+              "DetailType": "Status Notification",
+              "EventBusName": "${EventBus}",
+              "Source": "custom.stepfunctions"
+            }
+          ]
+        },
+        "End": true
+      }
+    }
+  }
+  

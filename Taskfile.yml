@@ -1,0 +1,234 @@
+version: "3"
+
+vars:
+  FRONTEND_DIR: ./frontend
+  SHARED_CONFIG_DIR: ./shared-config
+  BACKEND_DIR: ./backend
+  INFRASTRUCTURE_DIR: ./cdk
+  LOG_LEVEL: debug
+  # Stack prefix from shared-config (matches CDK naming)
+  STACK_PREFIX: EventScheduling
+includes:
+  docs:
+    dir: ./docs
+    optional: true
+    taskfile: ./docs
+  dist:
+    dir: ./
+    optional: true
+    taskfile: ./deployment
+
+tasks:
+  install:
+    desc: Install dependencies for all projects
+    cmds:
+      - task: install:root
+      - task: install:shared-config
+      - task: install:frontend
+      - task: install:backend
+      - task: install:infrastructure
+
+  install:shared-config:
+    dir: "{{.SHARED_CONFIG_DIR}}"
+    cmds:
+      - npm install
+
+  install:frontend:
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm install
+
+  install:backend:
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - npm install
+
+  install:infrastructure:
+    dir: "{{.INFRASTRUCTURE_DIR}}"
+    cmds:
+      - npm install
+
+  install:root:
+    cmds:
+      - npm install
+
+  build:core:
+    desc: Build shared-config, infra and backend.
+    cmds:
+      - mkdir -p frontend/dist
+      - task: build:shared-config
+      - task: build:infrastructure
+      - task: build:backend
+
+
+  build:shared-config:
+    dir: "{{.SHARED_CONFIG_DIR}}"
+    cmds:
+      - npm run build
+
+  build:frontend:
+    desc: Build frontend
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm run build
+
+  build:backend:
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - npm run build
+
+  build:infrastructure:
+    dir: "{{.INFRASTRUCTURE_DIR}}"
+    cmds:
+      - npm run build
+      - npm run cdk synth
+
+  test:integration:
+    desc: Run integration tests
+    cmds:
+      - task: test:integration:backend
+
+  test:integration:status:
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - npm run test test/integration/statusMessage.integration.test.ts
+    env:
+      EVENT_BUS_NAME:
+        sh: aws cloudformation describe-stacks --stack-name {{.STACK_PREFIX}}-EventBusStack --query 'Stacks[0].Outputs[?OutputKey==`EventBusName`].OutputValue' --output text || true
+      SNS_ARN:
+        sh: aws cloudformation describe-stacks --stack-name {{.STACK_PREFIX}}-EventBusStack --query 'Stacks[0].Outputs[?OutputKey==`BotSNStopicArn`].OutputValue' --output text || true
+
+  test:integration:sfn:
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - npm run test test/integration/stepFunction.integration.test.ts
+    env:
+      SFN_ARN:
+        sh: aws cloudformation describe-stacks --stack-name {{.STACK_PREFIX}}-OrchestrationStack --query 'Stacks[0].Outputs[?OutputKey==`MainWorkflowArn`].OutputValue' --output text || true
+      DYNAMODB_TABLE_NAME:
+        sh: aws cloudformation describe-stacks --stack-name {{.STACK_PREFIX}}-MiddlewareStack --query 'Stacks[0].Outputs[?OutputKey==`TableName`].OutputValue' --output text || true
+
+  test:integration:backend:
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - npm run test:integration -- {{.CLI_ARGS}}
+    env:
+      SNS_ARN:
+        sh: aws cloudformation describe-stacks --stack-name {{.STACK_PREFIX}}-EventBusStack --query 'Stacks[0].Outputs[?OutputKey==`BotSNStopicArn`].OutputValue' --output text || true
+      EVENT_BUS_NAME:
+        sh: aws cloudformation describe-stacks --stack-name {{.STACK_PREFIX}}-EventBusStack --query 'Stacks[0].Outputs[?OutputKey==`EventBusName`].OutputValue' --output text || true
+      SFN_ARN:
+        sh: aws cloudformation describe-stacks --stack-name {{.STACK_PREFIX}}-OrchestrationStack --query 'Stacks[0].Outputs[?OutputKey==`MainWorkflowArn`].OutputValue' --output text || true
+      DYNAMODB_TABLE_NAME:
+        sh: aws cloudformation describe-stacks --stack-name {{.STACK_PREFIX}}-MiddlewareStack --query 'Stacks[0].Outputs[?OutputKey==`TableName`].OutputValue' --output text || true
+        
+  test:security:local:
+    desc: Run locally AWS Automated Security Helper
+    cmds:
+      - rm -rf dist/ash/
+      - mkdir -p dist/ash/
+      - docker login registry.gitlab.aws.dev
+      - |
+        docker run --platform linux/amd64 \
+          -v "$(pwd)/.gitignore:/src/.gitignore:ro" \
+          -v "$(pwd)/frontend:/src/frontend:ro" \
+          -v "$(pwd)/backend:/src/backend:ro" \
+          -v "$(pwd)/cdk:/src/cdk:ro" \
+          -v "$(pwd)/shared-config:/src/shared-config:ro" \
+          -v "./dist/ash:/out" \
+          registry.gitlab.aws.dev/dbbegimh/automated-security-helper:latest \
+          ash \
+          --source-dir /src \
+          --output-dir /out \
+          --debug \
+          --force \
+          --no-cleanup
+
+  test:cdk-nag:
+    dir: "{{.INFRASTRUCTURE_DIR}}"
+    cmds:
+      - npm run cdk-nag
+
+  test:lint:
+    desc: Lint all projects
+    cmds:
+      - npm run lint --fix
+
+  deploy:frontend:
+    desc: Deploy frontend to S3 bucket
+    cmds:
+      - cd {{.INFRASTRUCTURE_DIR}} && npx aws-cdk deploy --all --require-approval never --outputs-file ../frontend/output.json
+      - task: build:frontend
+      - cd {{.FRONTEND_DIR}} && aws s3 sync dist/ s3://{{.S3_BUCKET}} --delete
+    vars:
+      S3_BUCKET:
+        sh: aws cloudformation describe-stacks --stack-name {{.STACK_PREFIX}}-UserInterfaceStack --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' --output text || true
+
+  deploy:infrastructure:
+    desc: Deploy AWS CDK infrastructure
+    dir: "{{.INFRASTRUCTURE_DIR}}"
+    cmds:
+      - npx aws-cdk deploy --all --require-approval never --outputs-file ../frontend/output.json
+      - echo "Contents of output.json:"
+      - cat ../frontend/output.json
+
+  deploy:full:
+    desc: Deploy infrastructure then frontend (complete deployment)
+    cmds:
+      - task: deploy:infrastructure
+      - task: deploy:frontend
+
+  destroy:infrastructure:
+    dir: "{{.INFRASTRUCTURE_DIR}}"
+    cmds:
+      - npx ts-node scripts/cleanup-sc-associations.ts
+      - npx ts-node scripts/dissociate-waf-acl.ts
+      - npx aws-cdk destroy --all --force
+
+  clean:
+    desc: Clean up all "build" directories
+    cmds:
+      - find . -name "node_modules" -type d -prune -exec rm -rf "{}" \; -print
+      - find . -name "package-lock.json" -type f -prune -exec rm -rf "{}" \; -print
+      - find . -name ".cache" -type d -prune -exec rm -rf "{}" \; -print
+      - find . -name "cdk.out" -type d -prune -exec rm -rf "{}" \; -print
+      - find . -name "dist" -type d -prune -exec rm -rf "{}" \; -print
+
+  default:
+    cmds:
+      - task --list
+    silent: true
+
+  
+  chatbot:sns:chime:
+    desc: Configure AWS Chatbot for Chime with the SNS Topic. Add the AWS Chatbot Config Name as a parameter (CONFIG_NAME)
+    dir: "{{.INFRASTRUCTURE_DIR}}"
+    cmds:
+      - npm run update-chatbot -- --config-name {{.CONFIG_NAME}} --type chime
+    vars:
+      CONFIG_NAME: '{{.CONFIG_NAME | default "{{.STACK_PREFIX}}Chime"}}'
+
+  chatbot:sns:slack:
+    desc: Configure AWS Chatbot for Slack with the SNS Topic. Add the AWS Chatbot Config Name as a parameter (CONFIG_NAME)
+    dir: "{{.INFRASTRUCTURE_DIR}}"
+    cmds:
+      - npm run update-chatbot -- --config-name {{.CONFIG_NAME}} --type slack
+    vars:
+      CONFIG_NAME: '{{.CONFIG_NAME | default "{{.STACK_PREFIX}}Slack"}}'
+
+  audit:
+    desc: Run comprehensive troubleshooting checks for the Event Scheduling Platform
+    cmds:
+      - echo "🔍 Running Event Scheduling Platform Troubleshooting..."
+      - cd cdk && npx ts-node scripts/register-ssm.ts --dry-run
+      - cd cdk && npx ts-node scripts/register-sc.ts --dry-run
+
+  register:
+    desc: Register all tagged SSM Documents and Service Catalog Products with the Event Scheduling Platform
+    cmds:
+      - echo "📄 Registering tagged SSM Documents..."
+      - cd cdk && npx ts-node scripts/register-ssm.ts {{.CLI_ARGS}}
+      - echo "📋 Registering tagged Service Catalog resources..."
+      - cd cdk && npx ts-node scripts/register-sc.ts {{.CLI_ARGS}}
+
+      

@@ -1,0 +1,23 @@
+#set($eventId = $util.autoId())
+{
+    "version": "2017-02-28",
+    "operation": "PutItem",
+    "key": {
+        "pk": $util.dynamodb.toDynamoDBJson("$eventId"),
+        "sk": $util.dynamodb.toDynamoDBJson("Event")
+    },
+    "attributeValues": {
+        "id": $util.dynamodb.toDynamoDBJson($eventId),
+        "name": $util.dynamodb.toDynamoDBJson($ctx.args.name),
+        "additional_notes": $util.dynamodb.toDynamoDBJson($ctx.args.additional_notes),
+        "event_starts_ts": $util.dynamodb.toDynamoDBJson($ctx.args.event_starts_ts),
+        "event_ends_ts": $util.dynamodb.toDynamoDBJson($ctx.args.event_ends_ts),
+        "orchestration_type": $util.dynamodb.toDynamoDBJson($ctx.args.orchestration_type),
+        "document_name": $util.dynamodb.toDynamoDBJson($ctx.args.document_name),
+        "version_id": $util.dynamodb.toDynamoDBJson($ctx.args.version_id),
+        "event_status": $util.dynamodb.toDynamoDBJson($ctx.args.event_status),
+        "provisioning_parameters": $util.dynamodb.toDynamoDBJson($ctx.args.provisioning_parameters),
+        "created": $util.dynamodb.toDynamoDBJson($util.time.nowISO8601()),
+        "updated": $util.dynamodb.toDynamoDBJson($util.time.nowISO8601())
+    }
+}

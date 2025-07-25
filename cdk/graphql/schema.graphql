@@ -1,0 +1,113 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+type Query {
+  listEvents: [Event]
+  listSSMDocuments: [String]
+  ListScProduct: [SCProduct]
+  getEvent(id: String!): Event
+  getProvisioningParameters(productId: String!, provisioningArtifactId: String): [ProvisioningParameterDetails]
+  listProvisioningArtifacts(productId: String!): [ProvisioningArtifact]
+  getSSMDocumentParameters(documentName: String!, documentVersion: String): [SSMDocumentParameter]
+  getSSMDocumentVersions(documentName: String!): [SSMDocumentVersion]
+}
+
+type Mutation {
+  putEvent(
+    name: String!,
+    additional_notes: String,
+    event_starts_ts: String!,
+    event_ends_ts: String!,
+    orchestration_type: String!,
+    document_name: String!,
+    version_id: String,
+    event_status: String!,
+    provisioning_parameters: [ProvisioningParameterInput]
+  ): Event
+
+  updateEventStatus(
+    pk: String!,
+    sk: String!,
+    event_status: String!
+  ): Event @aws_iam
+
+  updateDeployOutputs(
+    pk: String!,
+    sk: String!,
+    outputs: AWSJSON!
+  ): Event @aws_iam
+
+  deleteEvent(pk: String!, sk: String!): Event
+}
+
+type Event @aws_iam @aws_cognito_user_pools {
+  id: String!
+  name: String
+  additional_notes: String
+  event_starts_ts: String
+  event_ends_ts: String
+  orchestration_type: String
+  document_name: String
+  version_id: String
+  event_status: String
+  provisioning_parameters: [ProvisioningParameterDetails]
+  outputs: AWSJSON
+  created: String
+  updated: String
+}
+
+type ProvisioningParameterDetails {
+  ParameterKey: String!
+  ParameterType: String!
+  DefaultValue: String
+  Description: String
+  IsNoEcho: Boolean
+}
+
+input ProvisioningParameterInput {
+  ParameterKey: String!
+  ParameterType: String!
+  DefaultValue: String
+  Description: String
+  IsNoEcho: Boolean
+}
+
+type ProvisioningArtifact {
+  Id: String
+  Name: String
+  Description: String
+  CreatedTime: String
+  Active: Boolean
+}
+
+type SCProduct {
+  id: String!
+  Name: String!
+  ShortDescription: String
+  Distributor: String
+  SupportDescription: String
+  SupportEmail: String
+  SupportUrl: String
+}
+
+type SSMDocumentParameter {
+  Name: String!
+  Type: String!
+  Description: String
+  DefaultValue: String
+}
+
+type SSMDocumentVersion {
+  Name: String!
+  DocumentVersion: String!
+  CreatedDate: String!
+  IsDefaultVersion: Boolean
+}
+
+type Subscription {
+  onUpdateEvent : Event
+  @aws_subscribe(mutations: ["updateEventStatus", "updateDeployOutputs"])
+}

@@ -1,0 +1,220 @@
+{
+  "Comment": "Main Workflow",
+  "StartAt": "PrerollWorkflow",
+  "States": {
+    "PrerollWorkflow": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+      "Parameters": {
+        "StateMachineArn": "${PrerollWorkflowArn}",
+        "Input.$": "$[0].body"
+      },
+      "Next": "DeployWorkflowChoice"
+    },
+    "DeployWorkflowChoice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.Input.orchestration_type",
+          "StringEquals": "SSM",
+          "Next": "DeploySSMWorkflow"
+        },
+        {
+          "Variable": "$.Input.orchestration_type",
+          "StringEquals": "SC",
+          "Next": "DeploySCWorkflow"
+        }
+      ],
+      "Default": "InvalidOrchestrationType"
+    },
+    "DeploySSMWorkflow": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+      "Parameters": {
+        "StateMachineArn": "${DeploySSMWorkflowArn}",
+        "Input": {
+          "eventBusName": "${EventBus}",
+          "Input.$": "$.Input"
+        }
+      },
+      "ResultPath": "$.deploySSMResult",
+      "Next": "CheckSSMDeploymentStatus"
+    },
+    "DeploySCWorkflow": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+      "Parameters": {
+        "StateMachineArn": "${DeploySCWorkflowArn}",
+        "Input": {
+          "eventBusName": "${EventBus}",
+          "Input.$": "$.Input"
+        }
+      },
+      "ResultPath": "$.deploySCResult",
+      "Next": "CheckSCDeploymentStatus"
+    },
+    "CheckSCDeploymentStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.deploySCResult.Output.ProvisionedProductId",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.deploySCResult.Output.DeploymentStatus",
+              "StringEquals": "SUCCEEDED"
+            }
+          ],
+          "Next": "WaitUntilEventEnd"
+        }
+      ],
+      "Default": "HandleSCDeploymentFailure"
+    },
+    "HandleSCDeploymentFailure": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "SendErrorNotification",
+          "States": {
+            "SendErrorNotification": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::events:putEvents",
+              "Parameters": {
+                "Entries": [
+                  {
+                    "Source": "custom.stepfunctions",
+                    "DetailType": "Status Notification",
+                    "Detail": {
+                      "pk.$": "$.Input.id",
+                      "sk": "Event",
+                      "status": "failed",
+                      "title.$": "States.Format('SC Deployment Failed: {}', $.Input.name)",
+                      "description": "❌ Service Catalog deployment failed - check CloudFormation stack for details"
+                    },
+                    "EventBusName": "${EventBus}"
+                  }
+                ]
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "UpdateEventStatusToFailed",
+          "States": {
+            "UpdateEventStatusToFailed": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${DynamoDBTable}",
+                "Key": {
+                  "pk": {
+                    "S.$": "$.Input.id"
+                  },
+                  "sk": {
+                    "S": "Event"
+                  }
+                },
+                "UpdateExpression": "SET event_status = :status, updated = :updated",
+                "ExpressionAttributeValues": {
+                  ":status": {
+                    "S": "failed"
+                  },
+                  ":updated": {
+                    "S.$": "$$.State.EnteredTime"
+                  }
+                }
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "End": true
+    },
+    "CheckSSMDeploymentStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.deploySSMResult.Output.DeploymentStatus",
+          "StringEquals": "Success",
+          "Next": "WaitUntilEventEnd"
+        }
+      ],
+      "Default": "HandleSSMDeploymentFailure"
+    },
+    "HandleSSMDeploymentFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Source": "custom.stepfunctions",
+            "DetailType": "Status Notification",
+            "Detail": {
+              "pk.$": "$.Input.id",
+              "sk": "Event",
+              "status": "failed",
+              "title.$": "States.Format('SSM Deployment Failed: {}', $.Input.name)",
+              "description": "❌ SSM Document execution failed - check automation execution for details"
+            },
+            "EventBusName": "${EventBus}"
+          }
+        ]
+      },
+      "End": true
+    },
+    "InvalidOrchestrationType": {
+      "Type": "Fail",
+      "Error": "InvalidOrchestrationTypeError",
+      "Cause": "The orchestration type provided is invalid."
+    },
+    "WaitUntilEventEnd": {
+      "Type": "Wait",
+      "TimestampPath": "$.Input.event_ends_ts",
+      "Next": "DestroyWorkflowChoice"
+    },
+    "DestroyWorkflowChoice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.Input.orchestration_type",
+          "StringEquals": "SSM",
+          "Next": "DestroySSMWorkflow"
+        },
+        {
+          "Variable": "$.Input.orchestration_type",
+          "StringEquals": "SC",
+          "Next": "DestroySCWorkflow"
+        }
+      ],
+      "Default": "InvalidOrchestrationType"
+    },
+    "DestroySSMWorkflow": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+      "Parameters": {
+        "StateMachineArn": "${DestroySSMWorkflowArn}",
+        "Input": {
+          "Input.$": "$.Input",
+          "eventBusName": "${EventBus}"
+        }
+      },
+      "End": true
+    },
+    "DestroySCWorkflow": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+      "Parameters": {
+        "StateMachineArn": "${DestroySCWorkflowArn}",
+        "Input": {
+          "ProvisionedProductId.$": "$.deploySCResult.Output.ProvisionedProductId",
+          "Input.$": "$.Input"
+        }
+      },
+      "End": true
+    }
+  }
+}

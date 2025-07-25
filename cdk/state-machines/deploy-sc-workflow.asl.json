@@ -1,0 +1,128 @@
+{
+  "Comment": "Deploy SC Workflow with Status Check and Error Handling",
+  "StartAt": "NotifyDeploymentStart",
+  "States": {
+    "NotifyDeploymentStart": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "pk.$": "$.Input.pk",
+              "sk.$": "$.Input.sk",
+              "status": "deploy",
+              "title.$": "States.Format('Deploying Product: {}', $.Input.name)",
+              "description": "🚀 Starting Product Deployment"
+            },
+            "DetailType": "Status Notification",
+            "EventBusName.$": "$.eventBusName",
+            "Source": "custom.stepfunctions"
+          }
+        ]
+      },
+      "ResultPath": "$.notificationResult",
+      "Next": "DeploySC"
+    },
+    "DeploySC": {
+      "Type": "Task",
+      "InputPath": "$",
+      "Resource": "arn:aws:states:::aws-sdk:servicecatalog:provisionProduct",
+      "Parameters": {
+        "ProductId.$": "$.Input.document_name",
+        "ProvisionedProductName.$": "States.Format('pp-{}', $.Input.id)",
+        "ProvisionToken.$": "$$.Execution.Name",
+        "ProvisioningArtifactId.$": "$.Input.version_id",
+        "ProvisioningParameters.$": "$.Input.provisioning_parameters"
+      },
+      "ResultPath": "$.provisionResult",
+      "Next": "Wait"
+    },
+    "Wait": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "CheckStatus"
+    },
+    "CheckStatus": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:servicecatalog:describeRecord",
+      "Parameters": {
+        "Id.$": "$.provisionResult.RecordDetail.RecordId"
+      },
+      "ResultPath": "$.statusCheck",
+      "Next": "EvaluateStatus"
+    },
+    "EvaluateStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.statusCheck.RecordDetail.Status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "NotifyDeployment"
+        },
+        {
+          "Variable": "$.statusCheck.RecordDetail.Status",
+          "StringEquals": "FAILED",
+          "Next": "HandleFailure"
+        }
+      ],
+      "Default": "Wait"
+    },
+    "NotifyDeployment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "pk.$": "$.Input.pk",
+              "sk.$": "$.Input.sk",
+              "status": "scaled",
+              "title.$": "States.Format('Product Deployment Successful: {}', $.Input.name)",
+              "description": "✅ Product deployed successfully",
+              "outputs.$": "States.JsonToString($.statusCheck.RecordOutputs)",
+              "output_exists": "true"
+            },
+            "DetailType": "Status Notification",
+            "EventBusName.$": "$.eventBusName",
+            "Source": "custom.stepfunctions"
+          }
+        ]
+      },
+      "ResultPath": "$.deploymentNotification",
+      "Next": "PrepareOutput"
+    },
+    "HandleFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "pk.$": "$.Input.pk",
+              "sk.$": "$.Input.sk",
+              "status": "failed",
+              "title.$": "States.Format('SC Deployment Failed: {}', $.Input.name)",
+              "description.$": "States.Format('❌ SC Deployment failed: {}', $.statusCheck.RecordDetail.RecordErrors[0].Description)"
+            },
+            "DetailType": "Error Notification",
+            "EventBusName.$": "$.eventBusName",
+            "Source": "custom.stepfunctions"
+          }
+        ]
+      },
+      "ResultPath": "$.failureNotification",
+      "Next": "PrepareOutput"
+    },
+    "PrepareOutput": {
+      "Type": "Pass",
+      "Parameters": {
+        "eventBusName.$": "$.eventBusName",
+        "ProvisionedProductId.$": "$.provisionResult.RecordDetail.ProvisionedProductId",
+        "DeploymentStatus.$": "$.statusCheck.RecordDetail.Status",
+        "Input.$": "$"
+      },
+      "End": true
+    }
+  }
+}

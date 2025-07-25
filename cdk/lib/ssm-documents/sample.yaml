@@ -1,0 +1,32 @@
+schemaVersion: "0.3"
+description: SSM Sample Document - Simple Demo
+assumeRole: "{{AutomationAssumeRole}}"
+parameters:
+  AutomationAssumeRole:
+    type: "AWS::IAM::Role::Arn"
+    default: %ROLE_ARN%
+    description: The ARN of the role that allows Automation to perform the actions on your behalf.
+  internalAction:
+    type: "String"
+    default: "preroll"
+    description: Internal action type for event orchestration (preroll/postroll)
+    allowedValues:
+      - "preroll"
+      - "postroll"
+mainSteps:
+  - name: WaitStep
+    action: aws:executeScript
+    isEnd: true
+    inputs:
+      Runtime: python3.11
+      Handler: script_handler
+      Script: |
+        import time
+        def script_handler(events, context):
+            return "Hello from Wait Step"
+    outputs:
+      - Name: message
+        Selector: $.Payload
+        Type: String
+outputs:
+  - WaitStep.message

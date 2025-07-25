@@ -1,0 +1,136 @@
+{
+  "Comment": "Destroy SC Workflow with Status Check and Error Handling",
+  "StartAt": "NotifyDestroyStart",
+  "States": {
+    "NotifyDestroyStart": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "pk.$": "$.Input.pk",
+              "sk.$": "$.Input.sk",
+              "status": "destroy",
+              "title.$": "States.Format('Destroying Product: {}', $.Input.name)",
+              "description": "🚀 Starting Product Destruction"
+            },
+            "DetailType": "Status Notification",
+            "EventBusName": "${EventBus}",
+            "Source": "custom.stepfunctions"
+          }
+        ]
+      },
+      "ResultPath": "$.notificationResult",
+      "Next": "TerminateSC"
+    },
+    "TerminateSC": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:servicecatalog:terminateProvisionedProduct",
+      "Parameters": {
+        "ProvisionedProductId.$": "$.ProvisionedProductId",
+        "TerminateToken.$": "$$.Execution.Name",
+        "IgnoreErrors": false
+      },
+      "ResultPath": "$.terminationResult",
+      "Next": "CheckTerminationStatus"
+    },
+    "CheckTerminationStatus": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:servicecatalog:describeRecord",
+      "Parameters": {
+        "Id.$": "$.terminationResult.RecordDetail.RecordId"
+      },
+      "ResultPath": "$.terminationStatus",
+      "Next": "EvaluateTerminationStatus"
+    },
+    "EvaluateTerminationStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.terminationStatus.RecordDetail.Status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "NotifyDestroy"
+        },
+        {
+          "Variable": "$.terminationStatus.RecordDetail.Status",
+          "StringEquals": "FAILED",
+          "Next": "HandleFailure"
+        }
+      ],
+      "Default": "Wait"
+    },
+    "Wait": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "CheckStatus"
+    },
+    "CheckStatus": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:servicecatalog:describeRecord",
+      "Parameters": {
+        "Id.$": "$.terminationResult.RecordDetail.RecordId"
+      },
+      "ResultPath": "$.statusCheck",
+      "Next": "EvaluateStatus"
+    },
+    "EvaluateStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.statusCheck.RecordDetail.Status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "NotifyDestroy"
+        },
+        {
+          "Variable": "$.statusCheck.RecordDetail.Status",
+          "StringEquals": "FAILED",
+          "Next": "HandleFailure"
+        }
+      ],
+      "Default": "Wait"
+    },
+    "NotifyDestroy": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "pk.$": "$.Input.pk",
+              "sk.$": "$.Input.sk",
+              "status": "ended",
+              "title.$": "States.Format('Product destroyed: {}', $.Input.name)",
+              "description": "✅ Product Destruction successful"
+            },
+            "DetailType": "Status Notification",
+            "EventBusName": "${EventBus}",
+            "Source": "custom.stepfunctions"
+          }
+        ]
+      },
+      "End": true
+    },
+    "HandleFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "pk.$": "$.Input.pk",
+              "sk.$": "$.Input.sk",
+              "status": "failed",
+              "title.$": "States.Format('SC Destruction Failed: {}', $.Input.name)",
+              "description.$": "States.Format('❌ SC Destruction failed: {}', $.statusCheck.RecordDetail.RecordErrors[0].Description)"
+            },
+            "DetailType": "Error Notification",
+            "EventBusName": "${EventBus}",
+            "Source": "custom.stepfunctions"
+          }
+        ]
+      },
+      "End": true
+    }
+  }
+}

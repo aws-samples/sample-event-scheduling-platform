@@ -1,0 +1,12 @@
+## Filter out incomplete Event records that don't have required fields
+#set($filteredItems = [])
+
+#foreach($item in $ctx.result.items)
+  ## Only include items that have the required 'id' field (and other essential fields)
+  #if($item.id && $item.name)
+    $util.qr($filteredItems.add($item))
+  #end
+#end
+
+## Return the filtered list
+$util.toJson($filteredItems)

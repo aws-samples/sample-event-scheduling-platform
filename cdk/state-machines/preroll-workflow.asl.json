@@ -1,0 +1,34 @@
+{
+  "Comment": "Preroll Workflow",
+  "StartAt": "Status",
+  "States": {
+    "Status": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "pk.$": "$.pk",
+              "sk.$": "$.sk",
+              "status": "scheduled",
+              "title.$": "States.Format('Preroll : {}', $.name)",
+              "description.$": "States.Format('⌛ Waiting for start time : {}', $.event_starts_ts)"
+            },
+            "DetailType": "Status Notification",
+            "EventBusName": "${EventBus}",
+            "Source": "custom.stepfunctions"
+          }
+        ]
+      },
+      "Next": "WaitUntilTime",
+      "ResultPath": null
+    },
+    "WaitUntilTime": {
+      "Type": "Wait",
+      "TimestampPath": "$.event_starts_ts",
+      "End": true
+    }
+  }
+}
+  

@@ -1,0 +1,76 @@
+import { SFNClient, StartExecutionCommand, DescribeExecutionCommand } from '@aws-sdk/client-sfn';
+import { DynamoDBClient, DeleteItemCommand } from '@aws-sdk/client-dynamodb';
+import { TEST_CONFIG } from '@test/config';
+
+// Initialize the SFNClient
+const sfnClient = new SFNClient();
+const dynamoDbClient = new DynamoDBClient();
+
+describe('Step Function Integration Test', () => {
+  it(
+    'should execute the Step Function and complete successfully',
+    async () => {
+      // Start the execution
+      expect(process.env.SFN_ARN).toBeDefined();
+
+      const startExecutionCommand = new StartExecutionCommand({
+        stateMachineArn: process.env.SFN_ARN || 'NO_SFN_ARN',
+        input: JSON.stringify([
+          {
+            "messageId": "fcb9e4f2-8290-406e-9af8-8571e1aefc48",
+            "receiptHandle": "AQEBjmBd6s1rJocmGjbL8G7nfLZgCxlVsWXoXp7j2QnwgZDkQPIFq9+XK81dCPUXz2m9GsPpmBXU677TGob1xszEeHJWsMYvSHkC4OtoxQoSgNSZoy3x104Mn1dEn+i/E3oPsvxLQA0xsnc5AMg3Wn5Ok1cJAfGFjP6S51Ah65qgew+QwFRQEnJ9NmkmeESlWuUXxRhs9gwIm5XrQkhvftb6edKmOWLKPuPQwEQ5Tx+chJGf0N0sU64JGKqSRL12sNwcvY7KgSj5qG6SzyI5j++gBRJjNHSJXI326YVsU+MbQaKBSFeNYkhhMSEBFHQUrOEgrOZCgUem8jCdSKHBMiOYTANzP3K9osAA6XbNv6sLLpUT/pGBGPVLz3e7ASx6VYCWc1M6pRB/huVWnKRC6x0TvOz0e6eSwLWmjIxxBXjPpcF85/sMFxu9bWKNcqD+C/uRyFy0mApp5ITeGu0g0IZ2sA==",
+            "body": "{\"pk\":\"571c64e9-7af6-41c8-a306-5bc061306d35\",\"sk\":\"Event\",\"additional_notes\":\"test new sfn\",\"created\":\"2025-01-25T17:42:37.138Z\",\"event_ends_ts\":\"2025-01-25T17:44:00.000Z\",\"event_starts_ts\":\"2025-01-25T18:04:10.000Z\",\"id\":\"571c64e9-7af6-41c8-a306-5bc061306d35\",\"name\":\"test new sfn\",\"updated\":\"2025-01-25T17:42:37.138Z\",\"orchestration_type\":\"SC\",\"document_name\":\"prod-4urls7veodtx2\"}",
+            "attributes": {
+              "ApproximateReceiveCount": "1",
+              "AWSTraceHeader": "Root=1-6795228d-99fe4ffb3fae11cd6be431cc;Parent=ecd182c5bad861fe;Sampled=1;Lineage=1:84e0a6b4:0",
+              "SentTimestamp": "1737826958485",
+              "SenderId": "AROATBRPQKO4OV5HWXSPZ:EventOrchestrator-Orchest-LambdaFunctionsddbtosqsE-qT4o8QeMrw9R",
+              "ApproximateFirstReceiveTimestamp": "1737826958491"
+            },
+            "messageAttributes": {},
+            "md5OfBody": "5fb5a3ba51358dc034c2cf14f30040ce",
+            "eventSource": "aws:sqs",
+            "eventSourceARN": "arn:aws:sqs:eu-west-3:209479291832:EventOrchestrator-OrchestrationStack-queue276F7297-2MZLsphVEAKL",
+            "awsRegion": "eu-west-3"
+          }
+        ]),
+      });
+
+      const startExecutionResult = await sfnClient.send(startExecutionCommand);
+
+      // Wait for the execution to complete
+      const checkStatus = async (): Promise<string> => {
+        const describeExecutionCommand = new DescribeExecutionCommand({
+          executionArn: startExecutionResult.executionArn,
+        });
+
+        const executionResult = await sfnClient.send(describeExecutionCommand);
+
+        if (executionResult.status === 'RUNNING') {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          return checkStatus(); // Recursively check again
+        }
+
+        return executionResult.status || 'UNKNOWN';
+      };
+
+      const finalStatus = await checkStatus();
+      expect(finalStatus).toBe('SUCCEEDED');
+
+      const deleteItemCommand = new DeleteItemCommand({
+        TableName: process.env.DYNAMODB_TABLE_NAME,
+        Key: {
+          pk: { S: '571c64e9-7af6-41c8-a306-5bc061306d35' },
+          sk: { S: 'Event' }
+        }
+      });
+
+      console.log('DYNAMODB_TABLE_NAME:', process.env.DYNAMODB_TABLE_NAME);
+
+      // Delete the item from DynamoDB
+      await dynamoDbClient.send(deleteItemCommand);
+
+    },
+    TEST_CONFIG.TIMEOUT.SFN,
+  );
+});

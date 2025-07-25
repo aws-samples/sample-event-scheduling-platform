@@ -1,0 +1,11 @@
+{
+  "Comment": "Postroll",
+  "StartAt": "WaitUntilTime",
+  "States": {
+    "WaitUntilTime": {
+      "Type": "Wait",
+      "TimestampPath": "$.Input.event_ends_ts",
+      "End": true
+    }
+  }
+}

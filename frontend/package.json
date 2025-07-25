@@ -1,0 +1,55 @@
+{
+  "name": "aws-event-orchestrator-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for My AWS Project",
+  "type": "module",
+  "scripts": {
+    "generate-config": "node src/generate-config.cjs",
+    "dev": "vite",
+    "build": "npm run generate-config && tsc && vite build",
+    "buildnoconfig": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@aws-amplify/ui-react": "^6.2.0",
+    "@cloudscape-design/collection-hooks": "^1.0.0",
+    "@cloudscape-design/components": "^3.0.729",
+    "@cloudscape-design/design-tokens": "^3.0.0",
+    "@cloudscape-design/global-styles": "^1.0.32",
+    "aws-amplify": "^6.4.4",
+    "fs": "^0.0.1-security",
+    "graphql-tag": "^2.12.6",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.26.0"
+  },
+  "devDependencies": {
+    "@aws-amplify/backend": "^1.0.4",
+    "@aws-amplify/backend-cli": "^1.2.2",
+    "@types/node": "^20.11.30",
+    "@types/react": "^18.0.17",
+    "@types/react-dom": "^18.0.6",
+    "@typescript-eslint/eslint-plugin": "^7.3.1",
+    "@typescript-eslint/parser": "^7.3.1",
+    "@vitejs/plugin-react": "^4.2.1",
+    "aws-cdk": "^2.151.0",
+    "aws-cdk-lib": "^2.151.0",
+    "constructs": "^10.3.0",
+    "esbuild": "^0.23.0",
+    "eslint": "^8.57.0",
+    "tsx": "^4.16.5",
+    "typescript": "^5.5.4",
+    "vite": "^5.2.6"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.9.5"
+  },
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "os": [
+    "linux",
+    "darwin"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "entryPoints": ["lib"],
+  "entryPointStrategy": "Expand",
+  "out": "docs/typedoc/",
+  "tsconfig": "./tsconfig.json",
+  "name": "AWS Event Scheduler - CDK"
+}

@@ -1,0 +1,144 @@
+{
+  "Comment": "Destroy SSM Workflow with Status Check and Error Handling",
+  "StartAt": "NotifyDestroyStart",
+  "States": {
+    "NotifyDestroyStart": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "pk.$": "$.Input.pk",
+              "sk.$": "$.Input.sk",
+              "status": "destroy",
+              "title.$": "States.Format('Scaling in : {}', $.Input.name)",
+              "description": "📉 Starting SSM Execution"
+            },
+            "DetailType": "Status Notification",
+            "EventBusName.$": "$.eventBusName",
+            "Source": "custom.stepfunctions"
+          }
+        ]
+      },
+      "ResultPath": "$.notificationResult",
+      "Next": "ParallelExecution"
+    },
+    "ParallelExecution": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "DestroySSM",
+          "States": {
+            "DestroySSM": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:ssm:startAutomationExecution",
+              "QueryLanguage": "JSONata",
+              "Arguments": {
+                "DocumentName": "{% $states.input.Input.document_name %}",
+                "DocumentVersion": "{% $states.input.Input.version_id %}",
+                "Parameters": "{% $merge([$states.input.Input.provisioning_parameters, {'internalAction' : ['postroll'] }]) %}"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "PassInput",
+          "States": {
+            "PassInput": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        }
+      ],
+      "Next": "Wait"
+    },
+    "Wait": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "CheckStatus"
+    },
+    "CheckStatus": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ssm:getAutomationExecution",
+      "Parameters": {
+        "AutomationExecutionId.$": "$[0].AutomationExecutionId"
+      },
+      "ResultPath": "$[0].statusCheck",
+      "Next": "EvaluateStatus"
+    },
+    "EvaluateStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$[0].statusCheck.AutomationExecution.AutomationExecutionStatus",
+          "StringEquals": "Success",
+          "Next": "NotifyDestruction"
+        },
+        {
+          "Variable": "$[0].statusCheck.AutomationExecution.AutomationExecutionStatus",
+          "StringEquals": "Failed",
+          "Next": "HandleFailure"
+        }
+      ],
+      "Default": "Wait"
+    },
+    "NotifyDestruction": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "pk.$": "$[1].Input.pk",
+              "sk.$": "$[1].Input.sk",
+              "status": "ended",
+              "title.$": "States.Format('Scale In Successful: {}', $[1].Input.name)",
+              "description": "✅ Scale in completed"
+            },
+            "DetailType": "Status Notification",
+            "EventBusName.$": "$[1].eventBusName",
+            "Source": "custom.stepfunctions"
+          }
+        ]
+      },
+      "ResultPath": "$[1].destructionNotification",
+      "Next": "PrepareOutput"
+    },
+    "HandleFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "pk.$": "$[1].Input.pk",
+              "sk.$": "$[1].Input.sk",
+              "status": "failed",
+              "title.$": "States.Format('SSM Destruction Failed: {}', $[1].Input.name)",
+              "description.$": "States.Format('❌ SSM Destruction failed: {}', $[0].statusCheck.AutomationExecution.FailureMessage)"
+            },
+            "DetailType": "Error Notification",
+            "EventBusName.$": "$[1].eventBusName",
+            "Source": "custom.stepfunctions"
+          }
+        ]
+      },
+      "ResultPath": "$[1].failureNotification",
+      "Next": "PrepareOutput"
+    },
+    "PrepareOutput": {
+      "Type": "Pass",
+      "Parameters": {
+        "eventBusName.$": "$[1].eventBusName",
+        "AutomationExecutionId.$": "$[0].AutomationExecutionId",
+        "DestructionStatus.$": "$[0].statusCheck.AutomationExecution.AutomationExecutionStatus",
+        "Input.$": "$[1].Input",
+        "orchestration_type": "SSM"
+      },
+      "End": true
+    }
+  }
+}

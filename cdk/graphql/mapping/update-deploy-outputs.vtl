@@ -1,0 +1,15 @@
+{
+    "version": "2018-05-29",
+    "operation": "UpdateItem",
+    "key": {
+        "pk": $util.dynamodb.toDynamoDBJson($ctx.args.pk),
+        "sk": $util.dynamodb.toDynamoDBJson("Event")
+    },
+    "update": {
+        "expression": "SET outputs = :newOutputs, updated = :updatedTime",
+        "expressionValues": {
+            ":newOutputs": $util.dynamodb.toDynamoDBJson($ctx.args.outputs),
+            ":updatedTime": $util.dynamodb.toDynamoDBJson($util.time.nowISO8601())
+        }
+    }
+}
